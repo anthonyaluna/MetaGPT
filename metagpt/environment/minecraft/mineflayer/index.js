@@ -3,6 +3,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mineflayer = require("mineflayer");
 
+const { listenOnLoopback } = require("./lib/listenLocal");
+const { rejectBrowserOrigin } = require("./lib/rejectBrowserOrigin");
 const skills = require("./lib/skillLoader");
 const { initCounter, getNextTime } = require("./lib/utils");
 const obs = require("./lib/observation/base");
@@ -19,6 +21,7 @@ let bot = null;
 
 const app = express();
 
+app.use(rejectBrowserOrigin);
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: false }));
 
@@ -420,6 +423,6 @@ app.post("/pause", (req, res) => {
 
 const DEFAULT_PORT = 3000;
 const PORT = process.argv[2] || DEFAULT_PORT;
-app.listen(PORT, () => {
-    console.log(`Server started on port ${PORT}`);
+listenOnLoopback(app, PORT, () => {
+    console.log(`Server started on port ${PORT} at 127.0.0.1`);
 });
