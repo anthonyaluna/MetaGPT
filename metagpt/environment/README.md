@@ -36,3 +36,7 @@ res = env.step(EnvAPIAbstract("system_tap", kwargs={"x": x, "y": y}))
 - migrate roles/actions of werewolf game from old version into current version
 - migrate roles/actions of minecraft game from old version into current version
 - migrate roles/actions of stanford_town game from old version into current version
+
+## Minecraft Mineflayer sidecar
+
+The optional Mineflayer bridge executes generated JavaScript in the Node process. It binds to `127.0.0.1` to match `MinecraftExtEnv`'s local client and rejects requests carrying a browser `Origin` header. Keep it loopback-only; do not expose it through a reverse proxy, tunnel, or other network listener. Remote access is not supported without an authenticated protocol.
