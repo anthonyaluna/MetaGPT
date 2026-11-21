@@ -923,6 +923,8 @@ async def get_mime_type(filename: str | Path, force_read: bool = False) -> str:
             return guess_mime_type
         ix = stdout.rfind(" ")
         mime_type = stdout[ix:].strip()
+        if mime_type == "text/plain" and guess_mime_type == "application/yaml":
+            return "text/yaml"
         if mime_type == "text/plain" and guess_mime_type in text_set:
             return guess_mime_type
         return mime_type

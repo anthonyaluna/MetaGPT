@@ -57,6 +57,21 @@ def test_preserves_text_extension_override(monkeypatch, suffix, expected):
     assert asyncio.run(get_mime_type(Path(f"note.{suffix}"), force_read=True)) == expected
 
 
+@pytest.mark.parametrize(
+    "native, expected",
+    [
+        ("text/plain", "text/yaml"),
+        ("application/yaml", "application/yaml"),
+        ("application/octet-stream", "application/octet-stream"),
+    ],
+)
+def test_yaml_registry_alias_only_refines_plain_text(monkeypatch, native, expected):
+    monkeypatch.setattr("mimetypes.guess_type", lambda filename: ("application/yaml", None))
+    monkeypatch.setattr(shell, "shell_execute", AsyncMock(return_value=(f"note.yaml: {native}\n", "", 0)))
+
+    assert asyncio.run(get_mime_type(Path("note.yaml"), force_read=True)) == expected
+
+
 def test_preserves_stderr_fallback(monkeypatch):
     monkeypatch.setattr(shell, "shell_execute", AsyncMock(return_value=("", "unavailable", 1)))
 
