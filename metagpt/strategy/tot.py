@@ -4,6 +4,7 @@
 # @Desc    :
 from __future__ import annotations
 
+import ast
 import asyncio
 from typing import Any, List, Optional
 
@@ -21,12 +22,12 @@ Each output should be strictly a list of nodes, in json format, like this:
 ```json
     [
         {
-            "node_id": str = "unique identifier for a solution, can be an ordinal",
-            "node_state_instruction": "specified sample of solution",
-        },
-        ...
+            "node_id": "1",
+            "node_state_instruction": "specified sample of solution"
+        }
     ]
 ```
+Use a unique integer or integer string as each node_id.
 """
 
 
@@ -63,7 +64,16 @@ class ThoughtSolverBase(BaseModel):
         )
         rsp = await self.llm.aask(msg=state_prompt + "\n" + OUTPUT_FORMAT)
         thoughts = CodeParser.parse_code(text=rsp)
-        thoughts = eval(thoughts)
+        thoughts = ast.literal_eval(thoughts)
+        if not isinstance(thoughts, list):
+            raise ValueError("Thought response must be a list of nodes")
+        for thought in thoughts:
+            if not isinstance(thought, dict) or not isinstance(thought.get("node_state_instruction"), str):
+                raise ValueError("Each thought must contain a string node_state_instruction")
+            node_id = thought.get("node_id")
+            if isinstance(node_id, bool) or not isinstance(node_id, (int, str)):
+                raise ValueError("Each thought must contain an integer node_id or integer string")
+            int(node_id)  # Validate every ID before update_node can mutate the tree.
         # fixme 避免不跟随，生成过多nodes
         # valid_thoughts = [_node for idx, _node in enumerate(thoughts) if idx < self.n_generate_sample]
         return self.thought_tree.update_node(thoughts, current_node=current_node)
