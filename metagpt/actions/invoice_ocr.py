@@ -9,11 +9,14 @@
 """
 
 import os
+import shutil
+import stat
+import tempfile
 import zipfile
-from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 
+import aiofiles
 import pandas as pd
 from paddleocr import PaddleOCR
 
@@ -25,7 +28,6 @@ from metagpt.prompts.invoice_ocr import (
     REPLY_OCR_QUESTION_PROMPT,
 )
 from metagpt.utils.common import OutputParser
-from metagpt.utils.file import File
 
 
 class InvoiceOCR(Action):
@@ -69,14 +71,71 @@ class InvoiceOCR(Action):
         Returns:
             The path to the unzipped directory.
         """
-        file_directory = file_path.parent / "unzip_invoices" / datetime.now().strftime("%Y%m%d%H%M%S")
         with zipfile.ZipFile(file_path, "r") as zip_ref:
+            members = []
+            files = set()
+            directories = set()
             for zip_info in zip_ref.infolist():
-                # Use CP437 to encode the file name, and then use GBK decoding to prevent Chinese garbled code
-                relative_name = Path(zip_info.filename.encode("cp437").decode("gbk"))
-                if relative_name.suffix:
-                    full_filename = file_directory / relative_name
-                    await File.write(full_filename.parent, relative_name.name, zip_ref.read(zip_info.filename))
+                # Preserve UTF-8 names; only legacy ZIP names need the CP437-to-GBK workaround.
+                if zip_info.flag_bits & 0x800:
+                    name = zip_info.filename
+                else:
+                    name = zip_info.filename.encode("cp437").decode("gbk")
+                windows_name = PureWindowsPath(name)
+                parts = PurePosixPath(name.replace("\\", "/")).parts
+                if (
+                    "\x00" in zip_info.orig_filename
+                    or windows_name.drive
+                    or windows_name.root
+                    or any(
+                        part == ".." or ":" in part or part.endswith((" ", ".")) or PureWindowsPath(part).is_reserved()
+                        for part in parts
+                    )
+                ):
+                    raise ValueError("Unsafe invoice ZIP member path")
+                file_type = stat.S_IFMT(zip_info.external_attr >> 16)
+                if file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
+                    raise ValueError("Unsupported invoice ZIP member type")
+                if not parts:
+                    continue
+                relative_name = Path(*parts)
+                key = os.path.normcase(str(relative_name))
+                parents = {os.path.normcase(str(parent)) for parent in relative_name.parents if parent != Path(".")}
+                is_directory = zip_info.is_dir() or name.endswith("\\") or file_type == stat.S_IFDIR
+                if key in files or parents.intersection(files) or (not is_directory and key in directories):
+                    raise ValueError("Colliding invoice ZIP member paths")
+                if is_directory:
+                    directories.update(parents | {key})
+                elif relative_name.suffix:
+                    files.add(key)
+                    directories.update(parents)
+                    members.append((zip_info, relative_name))
+
+            # Validate the whole archive before creating any extraction output.
+            extraction_root = file_path.parent.resolve() / "unzip_invoices"
+            if extraction_root.resolve() != extraction_root:
+                raise ValueError("Invoice extraction root must not be a link")
+            extraction_root.mkdir(exist_ok=True)
+            if extraction_root.resolve() != extraction_root:
+                raise ValueError("Invoice extraction root must not be a link")
+            file_directory = Path(tempfile.mkdtemp(prefix="invoice-", dir=extraction_root))
+            try:
+                for zip_info, relative_name in members:
+                    content = zip_ref.read(zip_info)
+                    current = file_directory
+                    if current.resolve() != current:
+                        raise ValueError("Invoice extraction directory must not be a link")
+                    for part in relative_name.parts[:-1]:
+                        current = current / part
+                        current.mkdir(exist_ok=True)
+                        if current.resolve() != current:
+                            raise ValueError("Invoice extraction parent must not be a link")
+                    # Exclusive creation refuses existing files, symlinks and hardlinks.
+                    async with aiofiles.open(current / relative_name.name, mode="xb") as writer:
+                        await writer.write(content)
+            except BaseException:
+                shutil.rmtree(file_directory)
+                raise
 
         logger.info(f"unzip_path: {file_directory}")
         return file_directory
