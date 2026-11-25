@@ -41,7 +41,10 @@ class PrepareDocuments(Action):
         """Initialize the Git environment."""
         if not self.config.project_path:
             name = self.config.project_name or FileRepository.new_filename()
-            path = Path(self.config.workspace.path) / name
+            workspace = Path(self.config.workspace.path).resolve()
+            path = (workspace / name).resolve()
+            if path == workspace or workspace not in path.parents:
+                raise ValueError("project_name must resolve to a child of the configured workspace")
         else:
             path = Path(self.config.project_path)
         if path.exists() and not self.config.inc:

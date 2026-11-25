@@ -25,3 +25,12 @@ async def test_prepare_documents():
     doc = await context.repo.docs.get(filename=REQUIREMENT_FILENAME)
     assert doc
     assert doc.content == msg.content
+
+
+def test_project_name_cannot_escape_workspace(tmp_path):
+    context = Context()
+    context.config.workspace.path = tmp_path
+    context.config.project_name = "../outside-workspace"
+
+    with pytest.raises(ValueError, match="child of the configured workspace"):
+        PrepareDocuments(context=context)._init_repo()
