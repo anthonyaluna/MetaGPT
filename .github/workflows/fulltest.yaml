@@ -2,7 +2,7 @@ name: Full Tests
 
 on:
   workflow_dispatch:
-  pull_request_target:
+  pull_request:
   push: 
     branches:
       - 'main'
@@ -10,8 +10,64 @@ on:
       - '*-release'
       - '*-debugger'
 
+permissions:
+  contents: read
+
 jobs:
+  pr-build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9']
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        persist-credentials: false
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[test]
+        npm install -g @mermaid-js/mermaid-cli
+        playwright install --with-deps
+    - name: Configure isolated test settings
+      run: |
+        mkdir -p "$HOME/.metagpt"
+        cp tests/config2.yaml "$HOME/.metagpt/config2.yaml"
+    - name: Test with pytest
+      run: |
+        export ALLOW_OPENAI_API_CALL=0
+        pytest tests/ --doctest-modules --cov=./metagpt/ --cov-report=xml:cov.xml --cov-report=html:htmlcov --durations=20 | tee unittest.txt
+    - name: Show coverage report
+      run: coverage report -m
+    - name: Show failed tests and overall summary
+      run: |
+        grep -E "FAILED tests|ERROR tests|[0-9]+ passed," unittest.txt
+        failed_count=$(grep -E "FAILED|ERROR" unittest.txt | wc -l)
+        if [[ "$failed_count" -gt 0 ]]; then
+          echo "$failed_count failed lines found! Task failed."
+          exit 1
+        fi
+    - name: Upload pytest test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-results-pr-${{ matrix.python-version }}
+        path: |
+          ./unittest.txt
+          ./htmlcov/
+          ./tests/data/rsp_cache_new.json
+        retention-days: 3
+      if: ${{ always() }}
+
   build:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: unittest
     strategy:
@@ -23,6 +79,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         ref: ${{ github.event.pull_request.head.sha }}
+        persist-credentials: false
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
