@@ -34,3 +34,14 @@ def test_project_name_cannot_escape_workspace(tmp_path):
 
     with pytest.raises(ValueError, match="child of the configured workspace"):
         PrepareDocuments(context=context)._init_repo()
+
+
+def test_generated_project_does_not_replace_existing_path(tmp_path):
+    existing = tmp_path / "existing-project"
+    existing.mkdir()
+    context = Context()
+    context.config.workspace.path = tmp_path
+    context.config.project_name = existing.name
+
+    with pytest.raises(FileExistsError, match="refusing to replace"):
+        PrepareDocuments(context=context)._init_repo()

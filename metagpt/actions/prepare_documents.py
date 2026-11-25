@@ -7,6 +7,7 @@
 @Desc: PrepareDocuments Action: initialize project folder and add new requirements to docs/requirements.txt.
         RFC 135 2.2.3.5.1.
 """
+import re
 import shutil
 from pathlib import Path
 from typing import Dict, Optional
@@ -41,10 +42,14 @@ class PrepareDocuments(Action):
         """Initialize the Git environment."""
         if not self.config.project_path:
             name = self.config.project_name or FileRepository.new_filename()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+                raise ValueError("project_name must be a short single-component identifier")
             workspace = Path(self.config.workspace.path).resolve()
             path = (workspace / name).resolve()
             if path == workspace or workspace not in path.parents:
                 raise ValueError("project_name must resolve to a child of the configured workspace")
+            if path.exists() and not self.config.inc:
+                raise FileExistsError(f"refusing to replace existing generated project: {path}")
         else:
             path = Path(self.config.project_path)
         if path.exists() and not self.config.inc:
